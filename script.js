@@ -28,31 +28,32 @@ const canvas = document.getElementsByTagName('canvas')[0];
 resizeCanvas();
 
 let config = {
+    LAMB_FORCE: true,
     SIM_RESOLUTION: 128,
     DYE_RESOLUTION: 1024,
     CAPTURE_RESOLUTION: 512,
-    DENSITY_DISSIPATION: 1,
-    VELOCITY_DISSIPATION: 0.2,
-    PRESSURE: 0.8,
+    DENSITY_DISSIPATION: 0.5,
+    VELOCITY_DISSIPATION: 0.5,
+    PRESSURE: 0.5,
     PRESSURE_ITERATIONS: 20,
-    CURL: 30,
+    CURL: 0,
     SPLAT_RADIUS: 0.25,
-    SPLAT_FORCE: 6000,
+    SPLAT_FORCE: 4500,
     SHADING: true,
     COLORFUL: true,
     COLOR_UPDATE_SPEED: 10,
     PAUSED: false,
     BACK_COLOR: { r: 0, g: 0, b: 0 },
     TRANSPARENT: false,
-    BLOOM: true,
+    BLOOM: false,
     BLOOM_ITERATIONS: 8,
     BLOOM_RESOLUTION: 256,
-    BLOOM_INTENSITY: 0.8,
-    BLOOM_THRESHOLD: 0.6,
-    BLOOM_SOFT_KNEE: 0.7,
-    SUNRAYS: true,
+    BLOOM_INTENSITY: 0.35,
+    BLOOM_THRESHOLD: 0.95,
+    BLOOM_SOFT_KNEE: 0.5,
+    SUNRAYS: false,
     SUNRAYS_RESOLUTION: 196,
-    SUNRAYS_WEIGHT: 1.0,
+    SUNRAYS_WEIGHT: 0.5,
 }
 
 function pointerPrototype () {
@@ -178,6 +179,7 @@ function supportRenderTextureFormat (gl, internalFormat, format, type) {
 
 function startGUI () {
     var gui = new dat.GUI({ width: 300 });
+    gui.add(config, 'LAMB_FORCE').name('lamb force').listen();
     gui.add(config, 'DYE_RESOLUTION', { 'high': 1024, 'medium': 512, 'low': 256, 'very low': 128 }).name('quality').onFinishChange(initFramebuffers);
     gui.add(config, 'SIM_RESOLUTION', { '32': 32, '64': 64, '128': 128, '256': 256 }).name('sim resolution').onFinishChange(initFramebuffers);
     gui.add(config, 'DENSITY_DISSIPATION', 0, 4.0).name('density diffusion');
@@ -816,21 +818,51 @@ const vorticityShader = compileShader(gl.FRAGMENT_SHADER, `
     uniform sampler2D uCurl;
     uniform float curl;
     uniform float dt;
+    uniform bool lamb;
 
     void main () {
-        float L = texture2D(uCurl, vL).x;
-        float R = texture2D(uCurl, vR).x;
-        float T = texture2D(uCurl, vT).x;
-        float B = texture2D(uCurl, vB).x;
-        float C = texture2D(uCurl, vUv).x;
-
-        vec2 force = 0.5 * vec2(abs(T) - abs(B), abs(R) - abs(L));
-        force /= length(force) + 0.0001;
-        force *= curl * C;
-        force.y *= -1.0;
-
         vec2 vel = texture2D(uVelocity, vUv).xy;
-        gl_FragColor = vec4(vel + force * dt, 0.0, 1.0);
+        if(lamb){
+            gl_FragColor = vec4(vel, 0.0, 1.0);
+        } else {
+            float L = texture2D(uCurl, vL).x;
+            float R = texture2D(uCurl, vR).x;
+            float T = texture2D(uCurl, vT).x;
+            float B = texture2D(uCurl, vB).x;
+            float C = texture2D(uCurl, vUv).x;
+            vec2 force = 0.5 * vec2(abs(T) - abs(B), abs(R) - abs(L));
+            force /= length(force) + 0.0001;
+            force *= curl * C;
+            force.y *= -1.0;
+            gl_FragColor = vec4(vel + force * dt, 0.0, 1.0);
+        }
+    }
+`);
+
+const lambShader = compileShader(gl.FRAGMENT_SHADER, `
+    precision highp float;
+    precision highp sampler2D;
+
+    varying vec2 vUv;
+    varying vec2 vL;
+    varying vec2 vR;
+    varying vec2 vT;
+    varying vec2 vB;
+    uniform sampler2D uVelocity;
+    uniform sampler2D uCurl;
+    uniform float curl;
+    uniform float dt;
+    uniform bool lamb;
+
+    void main () {
+        vec2 vel = texture2D(uVelocity, vUv).xy;
+        if (lamb) {
+            float C = texture2D(uCurl, vUv).x;
+            vec2 force = C * vec2(-vel.y, vel.x); // (curl v) x v
+            gl_FragColor = vec4(vel - force * dt, 0.0, 1.0);
+        } else {
+            gl_FragColor = vec4(vel, 0.0, 1.0);
+        }
     }
 `);
 
@@ -922,6 +954,7 @@ const advectionProgram       = new Program(baseVertexShader, advectionShader);
 const divergenceProgram      = new Program(baseVertexShader, divergenceShader);
 const curlProgram            = new Program(baseVertexShader, curlShader);
 const vorticityProgram       = new Program(baseVertexShader, vorticityShader);
+const lambProgram       = new Program(baseVertexShader, lambShader);
 const pressureProgram        = new Program(baseVertexShader, pressureShader);
 const gradienSubtractProgram = new Program(baseVertexShader, gradientSubtractShader);
 
@@ -1113,7 +1146,7 @@ function updateKeywords () {
 
 updateKeywords();
 initFramebuffers();
-multipleSplats(parseInt(Math.random() * 20) + 5);
+// multipleSplats(parseInt(Math.random() * 20) + 5);
 
 let lastUpdateTime = Date.now();
 let colorUpdateTimer = 0.0;
@@ -1188,7 +1221,18 @@ function step (dt) {
     gl.uniform1i(vorticityProgram.uniforms.uVelocity, velocity.read.attach(0));
     gl.uniform1i(vorticityProgram.uniforms.uCurl, curl.attach(1));
     gl.uniform1f(vorticityProgram.uniforms.curl, config.CURL);
+    gl.uniform1f(vorticityProgram.uniforms.lamb, config.LAMB_FORCE);
     gl.uniform1f(vorticityProgram.uniforms.dt, dt);
+    blit(velocity.write.fbo);
+    velocity.swap();
+
+    lambProgram.bind();
+    gl.uniform2f(lambProgram.uniforms.texelSize, velocity.texelSizeX, velocity.texelSizeY);
+    gl.uniform1i(lambProgram.uniforms.uVelocity, velocity.read.attach(0));
+    gl.uniform1i(lambProgram.uniforms.uCurl, curl.attach(1));
+    gl.uniform1f(lambProgram.uniforms.curl, config.CURL);
+    gl.uniform1f(lambProgram.uniforms.lamb, config.LAMB_FORCE);
+    gl.uniform1f(lambProgram.uniforms.dt, dt);
     blit(velocity.write.fbo);
     velocity.swap();
 
@@ -1388,8 +1432,8 @@ function multipleSplats (amount) {
         color.b *= 10.0;
         const x = Math.random();
         const y = Math.random();
-        const dx = 1000 * (Math.random() - 0.5);
-        const dy = 1000 * (Math.random() - 0.5);
+        const dx = 500 * (Math.random() - 0.5);
+        const dy = 500 * (Math.random() - 0.5);
         splat(x, y, dx, dy, color);
     }
 }
@@ -1477,6 +1521,8 @@ window.addEventListener('touchend', e => {
 window.addEventListener('keydown', e => {
     if (e.code === 'KeyP')
         config.PAUSED = !config.PAUSED;
+    if (e.code === 'KeyL')
+        config.LAMB_FORCE = !config.LAMB_FORCE;
     if (e.key === ' ')
         splatStack.push(parseInt(Math.random() * 20) + 5);
 });
