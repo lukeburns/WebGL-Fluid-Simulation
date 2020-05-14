@@ -35,7 +35,7 @@ let config = {
     DENSITY_DISSIPATION: 0.5,
     VELOCITY_DISSIPATION: 0.5,
     PRESSURE: 0.5,
-    PRESSURE_ITERATIONS: 20,
+    PRESSURE_ITERATIONS: 24,
     CURL: 0,
     SPLAT_RADIUS: 0.25,
     SPLAT_FORCE: 4500,
@@ -818,24 +818,10 @@ const vorticityShader = compileShader(gl.FRAGMENT_SHADER, `
     uniform sampler2D uCurl;
     uniform float curl;
     uniform float dt;
-    uniform bool lamb;
 
     void main () {
         vec2 vel = texture2D(uVelocity, vUv).xy;
-        if(lamb){
-            gl_FragColor = vec4(vel, 0.0, 1.0);
-        } else {
-            float L = texture2D(uCurl, vL).x;
-            float R = texture2D(uCurl, vR).x;
-            float T = texture2D(uCurl, vT).x;
-            float B = texture2D(uCurl, vB).x;
-            float C = texture2D(uCurl, vUv).x;
-            vec2 force = 0.5 * vec2(abs(T) - abs(B), abs(R) - abs(L));
-            force /= length(force) + 0.0001;
-            force *= curl * C;
-            force.y *= -1.0;
-            gl_FragColor = vec4(vel + force * dt, 0.0, 1.0);
-        }
+        gl_FragColor = vec4(vel, 0.0, 1.0);
     }
 `);
 
@@ -852,17 +838,13 @@ const lambShader = compileShader(gl.FRAGMENT_SHADER, `
     uniform sampler2D uCurl;
     uniform float curl;
     uniform float dt;
-    uniform bool lamb;
+    uniform float texelSizeX;
 
     void main () {
         vec2 vel = texture2D(uVelocity, vUv).xy;
-        if (lamb) {
-            float C = texture2D(uCurl, vUv).x;
-            vec2 force = C * vec2(-vel.y, vel.x); // (curl v) x v
-            gl_FragColor = vec4(vel - force * dt, 0.0, 1.0);
-        } else {
-            gl_FragColor = vec4(vel, 0.0, 1.0);
-        }
+        float C = texture2D(uCurl, vUv).x;
+        vec2 force = C * vec2(vel.y, -vel.x);
+        gl_FragColor = vec4(vel + force * dt, 0.0, 1.0);
     }
 `);
 
@@ -954,7 +936,7 @@ const advectionProgram       = new Program(baseVertexShader, advectionShader);
 const divergenceProgram      = new Program(baseVertexShader, divergenceShader);
 const curlProgram            = new Program(baseVertexShader, curlShader);
 const vorticityProgram       = new Program(baseVertexShader, vorticityShader);
-const lambProgram       = new Program(baseVertexShader, lambShader);
+const lambProgram            = new Program(baseVertexShader, lambShader);
 const pressureProgram        = new Program(baseVertexShader, pressureShader);
 const gradienSubtractProgram = new Program(baseVertexShader, gradientSubtractShader);
 
@@ -1216,36 +1198,36 @@ function step (dt) {
     gl.uniform1i(curlProgram.uniforms.uVelocity, velocity.read.attach(0));
     blit(curl.fbo);
 
+    if (config.LAMB_FORCE) {
+        lambProgram.bind();
+        gl.uniform2f(lambProgram.uniforms.texelSize, velocity.texelSizeX, velocity.texelSizeY);
+        gl.uniform1i(lambProgram.uniforms.uVelocity, velocity.read.attach(0));
+        gl.uniform1i(lambProgram.uniforms.uCurl, curl.attach(1));
+        gl.uniform1f(lambProgram.uniforms.curl, config.CURL);
+        gl.uniform1f(lambProgram.uniforms.dt, dt);
+        blit(velocity.write.fbo);
+        velocity.swap();
+    }
+
     vorticityProgram.bind();
     gl.uniform2f(vorticityProgram.uniforms.texelSize, velocity.texelSizeX, velocity.texelSizeY);
     gl.uniform1i(vorticityProgram.uniforms.uVelocity, velocity.read.attach(0));
     gl.uniform1i(vorticityProgram.uniforms.uCurl, curl.attach(1));
     gl.uniform1f(vorticityProgram.uniforms.curl, config.CURL);
-    gl.uniform1f(vorticityProgram.uniforms.lamb, config.LAMB_FORCE);
     gl.uniform1f(vorticityProgram.uniforms.dt, dt);
     blit(velocity.write.fbo);
     velocity.swap();
-
-    lambProgram.bind();
-    gl.uniform2f(lambProgram.uniforms.texelSize, velocity.texelSizeX, velocity.texelSizeY);
-    gl.uniform1i(lambProgram.uniforms.uVelocity, velocity.read.attach(0));
-    gl.uniform1i(lambProgram.uniforms.uCurl, curl.attach(1));
-    gl.uniform1f(lambProgram.uniforms.curl, config.CURL);
-    gl.uniform1f(lambProgram.uniforms.lamb, config.LAMB_FORCE);
-    gl.uniform1f(lambProgram.uniforms.dt, dt);
-    blit(velocity.write.fbo);
-    velocity.swap();
-
-    divergenceProgram.bind();
-    gl.uniform2f(divergenceProgram.uniforms.texelSize, velocity.texelSizeX, velocity.texelSizeY);
-    gl.uniform1i(divergenceProgram.uniforms.uVelocity, velocity.read.attach(0));
-    blit(divergence.fbo);
 
     clearProgram.bind();
     gl.uniform1i(clearProgram.uniforms.uTexture, pressure.read.attach(0));
     gl.uniform1f(clearProgram.uniforms.value, config.PRESSURE);
     blit(pressure.write.fbo);
     pressure.swap();
+
+    divergenceProgram.bind();
+    gl.uniform2f(divergenceProgram.uniforms.texelSize, velocity.texelSizeX, velocity.texelSizeY);
+    gl.uniform1i(divergenceProgram.uniforms.uVelocity, velocity.read.attach(0));
+    blit(divergence.fbo);
 
     pressureProgram.bind();
     gl.uniform2f(pressureProgram.uniforms.texelSize, velocity.texelSizeX, velocity.texelSizeY);
