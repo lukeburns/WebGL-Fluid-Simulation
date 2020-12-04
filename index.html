@@ -52,6 +52,10 @@
                 overflow: visible;
             }
 
+            .dg .close-button {
+                display: none;
+            }
+
             @font-face {
                 font-family: 'iconfont';
                 src: url('iconfont.ttf') format('truetype');
@@ -110,5 +114,17 @@
     <body>
         <canvas></canvas>
         <script src="./script.js"></script>
+        <script>
+            document.getElementsByTagName('canvas')[0].ondblclick = function () {
+                document.getElementsByClassName('close-button')[0].click()
+            }
+            if( /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent) ) {
+                document.getElementsByTagName('canvas')[0].onclick = function () {
+                    if (document.getElementsByClassName('main')[0].children[1].classList.length == 0) {
+                            document.getElementsByClassName('close-button')[0].click()
+                    }
+                }
+            }
+        </script>
     </body>
 </html>
