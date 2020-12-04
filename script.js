@@ -29,7 +29,7 @@ resizeCanvas();
 
 let config = {
     LAMB_FORCE: true,
-    SIM_RESOLUTION: 256,
+    SIM_RESOLUTION: 128,
     DYE_RESOLUTION: 1024,
     CAPTURE_RESOLUTION: 512,
     DENSITY_DISSIPATION: 0.5,
@@ -37,7 +37,7 @@ let config = {
     PRESSURE: 0.5,
     PRESSURE_ITERATIONS: 24,
     CURL: 0,
-    SPLAT_RADIUS: 0.4,
+    SPLAT_RADIUS: 0.5,
     SPLAT_FORCE: 3000,
     SHADING: true,
     COLORFUL: true,
@@ -48,8 +48,8 @@ let config = {
     BLOOM: true,
     BLOOM_ITERATIONS: 8,
     BLOOM_RESOLUTION: 256,
-    BLOOM_INTENSITY: 0.1,
-    BLOOM_THRESHOLD: 0.95,
+    BLOOM_INTENSITY: 0.05,
+    BLOOM_THRESHOLD: 0.99,
     BLOOM_SOFT_KNEE: 0.5,
     SUNRAYS: false,
     SUNRAYS_RESOLUTION: 196,
