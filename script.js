@@ -844,6 +844,13 @@ const lambShader = compileShader(gl.FRAGMENT_SHADER, `
         vec2 vel = texture2D(uVelocity, vUv).xy;
         float C = texture2D(uCurl, vUv).x;
         vec2 force = C * vec2(vel.y, -vel.x);
+        
+        float force_norm = sqrt(dot(force, force));
+        float max_force = 40000.0;
+        if (force_norm > max_force) {
+            force = max_force*force/force_norm;
+        }
+
         gl_FragColor = vec4(vel + force * dt, 0.0, 1.0);
     }
 `);
