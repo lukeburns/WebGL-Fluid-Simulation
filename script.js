@@ -855,7 +855,7 @@ const lambShader = compileShader(gl.FRAGMENT_SHADER, `
         vec2 force = C * vec2(vel.y, -vel.x);
         
         // reduce sensitivity and set max force
-        force = force/1.6;
+        force = force/1.5;
         float force_norm = sqrt(dot(force, force));
         float max_force = 40000.0;
         if (force_norm > max_force) {
