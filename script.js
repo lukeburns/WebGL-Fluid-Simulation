@@ -179,7 +179,6 @@ function supportRenderTextureFormat (gl, internalFormat, format, type) {
 
 function startGUI () {
     var gui = new dat.GUI({ width: 300 });
-    gui.add(config, 'LAMB_FORCE').name('lamb force').listen();
     gui.add(config, 'DYE_RESOLUTION', { 'high': 1024, 'medium': 512, 'low': 256, 'very low': 128 }).name('quality').onFinishChange(initFramebuffers);
     gui.add(config, 'SIM_RESOLUTION', { '32': 32, '64': 64, '128': 128, '256': 256 }).name('sim resolution').onFinishChange(initFramebuffers);
     gui.add(config, 'DENSITY_DISSIPATION', 0, 4.0).name('density diffusion');
@@ -187,6 +186,7 @@ function startGUI () {
     gui.add(config, 'PRESSURE', 0.0, 1.0).name('pressure');
     gui.add(config, 'CURL', 0, 50).name('vorticity').step(1);
     gui.add(config, 'SPLAT_RADIUS', 0.01, 1.0).name('splat radius');
+    gui.add(config, 'LAMB_FORCE').name('lamb force').listen();
     gui.add(config, 'SHADING').name('shading').onFinishChange(updateKeywords);
     gui.add(config, 'COLORFUL').name('colorful');
     gui.add(config, 'PAUSED').name('paused').listen();
@@ -808,7 +808,6 @@ const curlShader = compileShader(gl.FRAGMENT_SHADER, `
 const vorticityShader = compileShader(gl.FRAGMENT_SHADER, `
     precision highp float;
     precision highp sampler2D;
-
     varying vec2 vUv;
     varying vec2 vL;
     varying vec2 vR;
@@ -818,10 +817,20 @@ const vorticityShader = compileShader(gl.FRAGMENT_SHADER, `
     uniform sampler2D uCurl;
     uniform float curl;
     uniform float dt;
-
     void main () {
-        vec2 vel = texture2D(uVelocity, vUv).xy;
-        gl_FragColor = vec4(vel, 0.0, 1.0);
+        float L = texture2D(uCurl, vL).x;
+        float R = texture2D(uCurl, vR).x;
+        float T = texture2D(uCurl, vT).x;
+        float B = texture2D(uCurl, vB).x;
+        float C = texture2D(uCurl, vUv).x;
+        vec2 force = 0.5 * vec2(abs(T) - abs(B), abs(R) - abs(L));
+        force /= length(force) + 0.0001;
+        force *= curl * C;
+        force.y *= -1.0;
+        vec2 velocity = texture2D(uVelocity, vUv).xy;
+        velocity += force * dt;
+        velocity = min(max(velocity, -1000.0), 1000.0);
+        gl_FragColor = vec4(velocity, 0.0, 1.0);
     }
 `);
 
@@ -845,6 +854,8 @@ const lambShader = compileShader(gl.FRAGMENT_SHADER, `
         float C = texture2D(uCurl, vUv).x;
         vec2 force = C * vec2(vel.y, -vel.x);
         
+        // reduce sensitivity and set max force
+        force = force/1.2;
         float force_norm = sqrt(dot(force, force));
         float max_force = 40000.0;
         if (force_norm > max_force) {
