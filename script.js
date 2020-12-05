@@ -28,15 +28,15 @@ const canvas = document.getElementsByTagName('canvas')[0];
 resizeCanvas();
 
 let config = {
-    LAMB_FORCE: true,
+    LAMB_FORCE: 0.7,
     SIM_RESOLUTION: 256,
     DYE_RESOLUTION: 1024,
     CAPTURE_RESOLUTION: 512,
-    DENSITY_DISSIPATION: 0.5,
-    VELOCITY_DISSIPATION: 0.0,
-    PRESSURE: 0.5,
+    DENSITY_DISSIPATION: 0.2,
+    VELOCITY_DISSIPATION: 0.1,
+    PRESSURE: 1.0,
     PRESSURE_ITERATIONS: 24,
-    CURL: 1,
+    CURL: 2,
     SPLAT_RADIUS: 0.5,
     SPLAT_FORCE: 2000,
     SHADING: true,
@@ -178,15 +178,15 @@ function supportRenderTextureFormat (gl, internalFormat, format, type) {
 }
 
 function startGUI () {
-    var gui = new dat.GUI({ width: 300 });
+    var gui = new dat.GUI({ width: 350 });
     gui.add(config, 'DYE_RESOLUTION', { 'high': 1024, 'medium': 512, 'low': 256, 'very low': 128 }).name('quality').onFinishChange(initFramebuffers);
     gui.add(config, 'SIM_RESOLUTION', { '32': 32, '64': 64, '128': 128, '256': 256 }).name('sim resolution').onFinishChange(initFramebuffers);
     gui.add(config, 'DENSITY_DISSIPATION', 0, 4.0).name('density diffusion');
     gui.add(config, 'VELOCITY_DISSIPATION', 0, 4.0).name('velocity diffusion');
     gui.add(config, 'PRESSURE', 0.0, 1.0).name('pressure');
-    gui.add(config, 'CURL', 0, 50).name('vorticity').step(1);
+    gui.add(config, 'LAMB_FORCE', 0.0, 1.0).name('drag').step(0.01);
+    gui.add(config, 'CURL', 0, 50).name('vorticity confinement').step(1);
     gui.add(config, 'SPLAT_RADIUS', 0.01, 1.0).name('splat radius');
-    gui.add(config, 'LAMB_FORCE').name('lamb force').listen();
     gui.add(config, 'SHADING').name('shading').onFinishChange(updateKeywords);
     gui.add(config, 'COLORFUL').name('colorful');
     gui.add(config, 'PAUSED').name('paused').listen();
@@ -846,16 +846,16 @@ const lambShader = compileShader(gl.FRAGMENT_SHADER, `
     uniform sampler2D uVelocity;
     uniform sampler2D uCurl;
     uniform float curl;
+    uniform float lamb_force;
     uniform float dt;
     uniform float texelSizeX;
 
     void main () {
         vec2 vel = texture2D(uVelocity, vUv).xy;
         float C = texture2D(uCurl, vUv).x;
-        vec2 force = C * vec2(vel.y, -vel.x);
+        vec2 force = lamb_force * C * vec2(vel.y, -vel.x);
         
         // reduce sensitivity and set max force
-        force = force/1.5;
         float force_norm = sqrt(dot(force, force));
         float max_force = 40000.0;
         if (force_norm > max_force) {
@@ -1216,16 +1216,15 @@ function step (dt) {
     gl.uniform1i(curlProgram.uniforms.uVelocity, velocity.read.attach(0));
     blit(curl.fbo);
 
-    if (config.LAMB_FORCE) {
-        lambProgram.bind();
-        gl.uniform2f(lambProgram.uniforms.texelSize, velocity.texelSizeX, velocity.texelSizeY);
-        gl.uniform1i(lambProgram.uniforms.uVelocity, velocity.read.attach(0));
-        gl.uniform1i(lambProgram.uniforms.uCurl, curl.attach(1));
-        gl.uniform1f(lambProgram.uniforms.curl, config.CURL);
-        gl.uniform1f(lambProgram.uniforms.dt, dt);
-        blit(velocity.write.fbo);
-        velocity.swap();
-    }
+    lambProgram.bind();
+    gl.uniform2f(lambProgram.uniforms.texelSize, velocity.texelSizeX, velocity.texelSizeY);
+    gl.uniform1i(lambProgram.uniforms.uVelocity, velocity.read.attach(0));
+    gl.uniform1i(lambProgram.uniforms.uCurl, curl.attach(1));
+    gl.uniform1f(lambProgram.uniforms.curl, config.CURL);
+    gl.uniform1f(lambProgram.uniforms.lamb_force, config.LAMB_FORCE);
+    gl.uniform1f(lambProgram.uniforms.dt, dt);
+    blit(velocity.write.fbo);
+    velocity.swap();
 
     vorticityProgram.bind();
     gl.uniform2f(vorticityProgram.uniforms.texelSize, velocity.texelSizeX, velocity.texelSizeY);
